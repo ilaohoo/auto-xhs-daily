@@ -16,31 +16,44 @@ PUSHPLUS_TOKEN = os.getenv("PUSHPLUS_TOKEN", "YOUR_PUSHPLUS_TOKEN")
 # 缓存文件（记录已推送的文章链接哈希）
 CACHE_FILE = "sent_articles.json"
 
-# ---------- 自定义写作风格（可随意修改）----------
+# ---------- 自定义写作风格（新华社科普 + 小红书元素）----------
 CUSTOM_STYLE = """
-【我的写作风格要求】
-- 喜欢用“姐妹们”、“宝子们”开头，亲切感强
-- 善用比喻，比如“脾胃就像身体的发动机”
-- 段落之间加分隔线“···”
-- 每段不超过3行，多留白
-- 常用emoji：🌱🍎🥣✨🔥
-- 结尾一定有“💬 评论区告诉我你的困扰，下次专门为你出一期！”
+【小红书爆款科普文要求】
+你是一位专业的小红书健康科普博主，请将采集到的文章改写成一篇既权威又易懂、适合小红书的科普笔记。
+
+风格要求：
+- 标题：20字以内，带2-3个emoji，直击痛点或引发好奇。例如：“🚫别让这10个习惯偷走你的寿命！”
+- 开头：用“姐妹们/宝子们” + 一个生活场景引入，比如：“你的一天是不是这样开始的：清晨匆忙出门，顺手抓一块饼干当早餐……”
+- 正文结构：
+  - 每条习惯用 **01、02、03……** 加粗小标题（如“**01 不吃早餐**”）
+  - 每条内容包含：危害（引用权威研究/数据） + 具体机制 + 改善建议
+  - 适当添加emoji（⚠️📊🍚🥤💤🔥），每段不超过4行
+- 结尾：总结呼吁（如“从今天开始，改掉一个习惯也是胜利”） + 5-8个相关标签（#健康科普 #饮食习惯 #寿命 #养生日常）
+- 禁止：夸大效果、推荐药品、绝对化用语（“治愈”“根治”）
+
+请确保内容真实可信，数据可查（可适当引用《柳叶刀》《中国居民膳食指南》等）。
 """
 
 # ---------- 自定义URL爬虫（可选，留空则跳过）----------
-# 格式示例: {"name": "网站名", "url": "https://example.com", "selector": "h2 a"}
-CUSTOM_URLS = []  # 按需填写
+CUSTOM_URLS = []  # 格式: {"name": "网站名", "url": "https://...", "selector": "h2 a"}
 
 # ================= 智能选文模块 =================
 def select_best_article(articles: List[Dict]) -> Optional[Dict]:
     """
     从多篇文章中选出一篇最适合推送的。
-    你可以修改 source_weights 和 high_value_keywords 来调整评分逻辑。
+    增加排除关键词，避免选中非养生内容（如政策、保险等）。
     """
     if not articles:
         return None
 
-    # 不同来源的权重（数字越大越优先）
+    # 排除关键词（如果标题包含这些词，直接跳过）
+    exclude_keywords = [
+        "保险", "政策", "制度", "实施方案", "通知", "政府", 
+        "医保", "社保", "会议", "领导", "习近平", "国务院",
+        "长期护理", "养老金", "退休", "委员会", "印发", "文件"
+    ]
+
+    # 不同来源的权重
     source_weights = {
         "中医启疾光网": 5,
         "人民网健康": 4,
@@ -57,30 +70,33 @@ def select_best_article(articles: List[Dict]) -> Optional[Dict]:
     # 高价值关键词（出现在标题中加分）
     high_value_keywords = [
         "健脾", "祛湿", "补气血", "养肝", "助眠", "便秘",
-        "食疗", "药膳", "四神汤", "八珍", "黄芪", "艾灸"
+        "食疗", "药膳", "四神汤", "八珍", "黄芪", "艾灸",
+        "寿命", "饮食习惯", "科普", "危害", "改善"
     ]
 
     best = None
     best_score = -1
 
     for art in articles:
-        score = 0
         title = art.get("title", "")
         source = art.get("source", "")
         summary = art.get("summary", "")
 
+        # 跳过包含排除关键词的文章
+        if any(kw in title for kw in exclude_keywords):
+            print(f"⏭️ 跳过非养生文章：{title[:50]}...")
+            continue
+
+        score = 0
         # 来源权重
         score += source_weights.get(source, 1)
-
-        # 标题包含高价值关键词
+        # 标题关键词加分
         for kw in high_value_keywords:
             if kw in title:
                 score += 3
-
-        # 内容长度适中（摘要越长信息量可能越大）
-        score += min(len(summary) / 200, 5)  # 最多加5分
-
-        # 避免标题过短或过泛
+        # 内容长度加分（摘要越长信息可能越丰富）
+        score += min(len(summary) / 200, 5)
+        # 标题过短扣分
         if len(title) < 5:
             score -= 2
 
@@ -88,12 +104,12 @@ def select_best_article(articles: List[Dict]) -> Optional[Dict]:
             best_score = score
             best = art
 
-    print(f"🏆 选中文章：【{best['source']}】{best['title']} (得分: {best_score:.1f})")
+    if best:
+        print(f"🏆 选中文章：【{best['source']}】{best['title']} (得分: {best_score:.1f})")
     return best
 
 # ================= 数据采集模块 =================
 def load_sent_articles() -> set:
-    """加载已经推送过的文章链接哈希集合"""
     if not os.path.exists(CACHE_FILE):
         return set()
     try:
@@ -104,15 +120,12 @@ def load_sent_articles() -> set:
         return set()
 
 def save_sent_articles(sent_hashes: set):
-    """保存已推送的文章链接哈希"""
     with open(CACHE_FILE, 'w', encoding='utf-8') as f:
         json.dump({"sent_hashes": list(sent_hashes)}, f, ensure_ascii=False, indent=2)
 
 def get_link_hash(link: str) -> str:
-    """生成链接的哈希值，用于去重"""
     return hashlib.md5(link.encode('utf-8')).hexdigest()
 
-# RSS 源列表
 RSS_SOURCES = [
     {"name": "中医启疾光网", "url": "https://www.zyqjg.com/forum.php?mod=guide&view=newthread&rss=1"},
     {"name": "人民网健康", "url": "https://rsshub.app/people/health/latest"},
@@ -127,7 +140,6 @@ RSS_SOURCES = [
 ]
 
 def fetch_from_rss() -> List[Dict]:
-    """从RSS源抓取文章"""
     articles = []
     for source in RSS_SOURCES:
         print(f"📡 RSS抓取：{source['name']}")
@@ -148,7 +160,6 @@ def fetch_from_rss() -> List[Dict]:
     return articles
 
 def fetch_from_custom_urls() -> List[Dict]:
-    """从自定义URL爬取文章（需要安装beautifulsoup4）"""
     if not CUSTOM_URLS:
         return []
     try:
@@ -184,10 +195,9 @@ def fetch_from_custom_urls() -> List[Dict]:
     return articles
 
 def fetch_all_new_articles() -> List[Dict]:
-    """获取所有新文章（未推送过的）"""
     sent_hashes = load_sent_articles()
     all_articles = fetch_from_rss() + fetch_from_custom_urls()
-    # 基于链接去重
+    # 去重
     unique = {}
     for art in all_articles:
         link = art['link']
@@ -204,28 +214,26 @@ def fetch_all_new_articles() -> List[Dict]:
 
 # ================= AI改写模块 =================
 def build_prompt(article: Dict) -> str:
-    """构建发送给AI的提示词（融合自定义风格）"""
     return f"""
-你是一位专业的小红书养生博主，请将下面这篇文章改写成爆款小红书文案。
+你是一位专业的小红书健康科普博主。请将下面这篇关于饮食/养生的文章，改写成一篇既权威又易懂、适合小红书的爆款科普笔记。
 
-{CUSTOM_STYLE}
+{ CUSTOM_STYLE }
 
-【内容要求】
-1. 标题：20字以内，带2-3个emoji，要吸引点击。
-2. 正文：口语化，多用短句和emoji，分点清晰，每段不超过3行。
-3. 结尾：加上5-8个相关话题标签，例如 #养生日常 #中医食补 #健脾祛湿。
-4. 禁止：夸大效果（不能说“治愈”）、不能推荐具体药品。
-
-【原始文章】
+【原始文章信息】
 来源：{article['source']}
 标题：{article['title']}
-内容摘要：{article['summary']}
+内容摘要：
+{article['summary']}
 
-请直接输出完整的小红书文案（标题单独一行，然后空一行再写正文）。
+请直接输出改写后的小红书文案，格式要求：
+- 第一行：标题（带emoji）
+- 空一行
+- 正文（按01、02……结构）
+- 空一行
+- 结尾标签
 """
 
 def rewrite_for_xiaohongshu(article: Dict) -> Optional[str]:
-    """调用DeepSeek API改写"""
     prompt = build_prompt(article)
     url = "https://api.deepseek.com/v1/chat/completions"
     headers = {
@@ -236,7 +244,7 @@ def rewrite_for_xiaohongshu(article: Dict) -> Optional[str]:
         "model": "deepseek-chat",
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.8,
-        "max_tokens": 800
+        "max_tokens": 1200  # 稍微增加长度，适合科普长文
     }
     try:
         response = requests.post(url, headers=headers, json=data, timeout=30)
@@ -251,7 +259,6 @@ def rewrite_for_xiaohongshu(article: Dict) -> Optional[str]:
 
 # ================= 微信推送模块 =================
 def send_to_wechat(content: str):
-    """推送文案到微信"""
     if not content:
         return
     if len(content) > 4000:
@@ -283,19 +290,19 @@ def main():
         print("没有新文章，结束运行。")
         return
 
-    # 从所有新文章中选一篇最好的
     best_article = select_best_article(new_articles)
     if not best_article:
-        print("无法选择文章，退出。")
+        print("无法选择文章（可能都被排除关键词过滤掉了），退出。")
         return
 
-    # 改写并推送这一篇
     print(f"📝 正在改写最佳文章...")
     xhs_post = rewrite_for_xiaohongshu(best_article)
     if xhs_post:
         send_to_wechat(xhs_post)
+    else:
+        print("⚠️ 改写失败，未推送。")
 
-    # 将所有新文章（包括未选中的）都标记为已处理，避免重复
+    # 将所有新文章（包括未选中的）标记为已处理，避免重复
     sent_hashes = load_sent_articles()
     for art in new_articles:
         sent_hashes.add(get_link_hash(art['link']))
