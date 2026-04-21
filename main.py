@@ -14,27 +14,43 @@ PUSHPLUS_TOKEN = os.getenv("PUSHPLUS_TOKEN", "YOUR_PUSHPLUS_TOKEN")
 
 CACHE_FILE = "sent_articles.json"
 
-# ---------- 写作风格（新华社科普 + 小红书元素）----------
+# ---------- 小红书爆款风格优化版 ----------
 CUSTOM_STYLE = """
 【小红书爆款科普文要求】
-你是一位专业的小红书健康科普博主，请将采集到的文章改写成一篇既权威又易懂、适合小红书的科普笔记。
+你是一位资深小红书养生博主，擅长把枯燥的健康知识写成爆款笔记。请将采集到的文章改写成以下风格的笔记：
 
-风格要求：
-- 标题：20字以内，带2-3个emoji，直击痛点或引发好奇。例如：“🚫别让这10个习惯偷走你的寿命！”
-- 开头：用“姐妹们/宝子们” + 一个生活场景引入，比如：“你的一天是不是这样开始的：清晨匆忙出门，顺手抓一块饼干当早餐……”
-- 正文结构：
-  - 每条习惯用 **01、02、03……** 加粗小标题（如“**01 不吃早餐**”）
-  - 每条内容包含：危害（引用权威研究/数据） + 具体机制 + 改善建议
-  - 适当添加emoji（⚠️📊🍚🥤💤🔥），每段不超过4行
-- 结尾：总结呼吁（如“从今天开始，改掉一个习惯也是胜利”） + 5-8个相关标签（#健康科普 #饮食习惯 #寿命 #养生日常）
-- 禁止：夸大效果、推荐药品、绝对化用语（“治愈”“根治”）
+【标题公式】
+- 格式：⚠️ + 痛点/数字 + 情绪词 + 结果
+- 示例1：⚠️别吃了！这10个习惯正在偷走你的寿命
+- 示例2：10个作死饮食习惯😭我中了5个，你呢？
+- 标题长度控制在18字以内，带2个emoji。
 
-请确保内容真实可信，数据可查（可适当引用《柳叶刀》《中国居民膳食指南》等）。
+【开头套路】
+- 第一句必须是“姐妹们，”或“宝子们，”
+- 然后用一个生活场景引发共鸣：“你是不是也这样？早上抓块饼干当早餐，午饭5分钟扒拉完……”
+- 紧接着抛出一个权威数据制造焦虑：“《柳叶刀》说，全球每年因不良饮食死亡超1100万！”
+- 最后给出价值承诺：“今天盘10个最伤身的习惯，中招的赶紧改👇”
+
+【正文结构】
+- 每条习惯用 **01、02、03……** 加粗小标题
+- 每一条格式：危害（一句话）+ 数据支撑（引用研究）+ 具体建议（一句话）
+- 适当加入emoji：⚠️📊🍚🥤💤🔥
+- 段落之间空一行，每段不超过3行
+
+【结尾互动】
+- 必须加一句互动提问：“你中了几个？评论区告诉我😭”
+- 再加一句呼吁：“从今天开始，改掉一个坏习惯就是胜利！”
+- 最后加上5-8个标签： #健康科普 #饮食习惯 #寿命 #养生日常 #避雷 #变健康
+
+【禁止事项】
+- 绝对不能说“治愈”“根治”“神效”
+- 不能推荐具体药品或保健品
+- 不要用“专家说”，改用“研究发现”“数据显示”
 """
 
-# ---------- RSS 源列表（使用更稳定的镜像）----------
+# ---------- RSS 源列表（使用稳定镜像）----------
 RSS_SOURCES = [
-    {"name": "中医启疾光网", "url": "https://www.zyqjg.com/forum.php?mod=guide&view=newthread&rss=1"},  # 原生RSS
+    {"name": "中医启疾光网", "url": "https://www.zyqjg.com/forum.php?mod=guide&view=newthread&rss=1"},
     {"name": "人民网健康", "url": "https://rsshub.bili.xyz/people/health/latest"},
     {"name": "凤凰中医", "url": "https://rsshub.bili.xyz/feng/ifeng/2/1"},
     {"name": "39健康网", "url": "https://rsshub.bili.xyz/39net/news"},
@@ -46,9 +62,8 @@ RSS_SOURCES = [
     {"name": "养生之道网", "url": "https://rsshub.bili.xyz/yszdao"}
 ]
 
-# ---------- 备用文章（当所有RSS都抓不到时使用）----------
+# ---------- 备用文章（内置一篇高互动选题）----------
 def get_seed_article() -> Dict:
-    """返回一篇内置的养生科普文章（每天链接不同，避免缓存重复）"""
     today = datetime.now(pytz.timezone('Asia/Shanghai')).strftime('%Y-%m-%d')
     return {
         'title': '10个饮食习惯正在偷走你的寿命',
@@ -100,14 +115,12 @@ def fetch_all_new_articles() -> List[Dict]:
     sent_hashes = load_sent_articles()
     all_articles = fetch_from_rss()
     
-    # 去重
     unique = {}
     for art in all_articles:
         link = art['link']
         if link not in unique:
             unique[link] = art
     
-    # 过滤已推送
     new_articles = []
     for art in unique.values():
         h = get_link_hash(art['link'])
@@ -116,7 +129,6 @@ def fetch_all_new_articles() -> List[Dict]:
     
     print(f"📊 总抓取 {len(unique)} 篇，新文章 {len(new_articles)} 篇")
     
-    # 如果没有新文章，使用备用文章（但也要检查是否已推送过）
     if not new_articles:
         print("⚠️ 未抓到新文章，尝试使用备用文章...")
         seed = get_seed_article()
@@ -151,7 +163,7 @@ def select_best_article(articles: List[Dict]) -> Optional[Dict]:
         "中华药膳门户": 3,
         "健康一线": 2,
         "养生之道网": 2,
-        "内置科普库": 4  # 备用文章权重较高
+        "内置科普库": 4
     }
 
     high_value_keywords = [
@@ -192,7 +204,7 @@ def select_best_article(articles: List[Dict]) -> Optional[Dict]:
 # ================= AI 改写 =================
 def build_prompt(article: Dict) -> str:
     return f"""
-你是一位专业的小红书健康科普博主。请将下面这篇关于饮食/养生的文章，改写成一篇既权威又易懂、适合小红书的爆款科普笔记。
+你是一位资深小红书养生博主。请将下面这篇文章改写成一篇爆款小红书笔记，严格遵循以下风格要求：
 
 {CUSTOM_STYLE}
 
@@ -202,12 +214,12 @@ def build_prompt(article: Dict) -> str:
 内容摘要：
 {article['summary']}
 
-请直接输出改写后的小红书文案，格式要求：
-- 第一行：标题（带emoji）
+请直接输出改写后的小红书文案，必须包含：
+- 标题（单独一行，带emoji）
 - 空一行
-- 正文（按01、02……结构）
+- 正文（按01、02结构，每一条有危害+数据+建议）
 - 空一行
-- 结尾标签
+- 互动提问 + 标签
 """
 
 def rewrite_for_xiaohongshu(article: Dict) -> Optional[str]:
@@ -242,7 +254,7 @@ def send_to_wechat(content: str):
     if len(content) > 4000:
         content = content[:3900] + "\n\n...（内容过长已截断）"
     title = f"📅 养生知识日报 - {datetime.now(pytz.timezone('Asia/Shanghai')).strftime('%Y-%m-%d')}"
-    url = "https://www.pushplus.plus/send"  # 使用 https
+    url = "https://www.pushplus.plus/send"
     data = {
         "token": PUSHPLUS_TOKEN,
         "title": title,
@@ -282,7 +294,6 @@ def main():
     else:
         print("⚠️ 改写失败，未推送。")
 
-    # 缓存所有新文章（包括备用文章）
     sent_hashes = load_sent_articles()
     for art in new_articles:
         sent_hashes.add(get_link_hash(art['link']))
