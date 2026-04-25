@@ -1,5 +1,0 @@
-requests
-feedparser
-pytz
-beautifulsoup4
-lxml
